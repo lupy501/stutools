@@ -50,6 +50,7 @@ size_t maxPositions = 10*1000*1000;
 size_t dontUseExclusive = 0;
 int    blocksFromEnd = 0;
 char*  logPositions = NULL;
+char*  logOutput = NULL;
 long int seed;
 
 void intHandler(int d) {
@@ -107,6 +108,9 @@ void handle_args(int argc, char *argv[]) {
       break;
     case 'L':
       logPositions = strdup(optarg);
+      break;
+    case 'o':
+      logOutput = strdup(optarg);
       break;
     case 'I':
       {}
@@ -258,6 +262,7 @@ void handle_args(int argc, char *argv[]) {
     fprintf(stderr,"  ./aioRWTest -s1 -w -f /dev/nbd0 -XXX -z # Start the first position at position zero instead of random.\n");
     fprintf(stderr,"  ./aioRWTest -s1 -w -f /dev/nbd0 -P10000 -z -a1 # align operations to 1KiB instead of the default 4KiB\n");
     fprintf(stderr,"  ./aioRWTest -L log.txt -s1 -w -f /dev/nbd0 # log all positions and operations to log.txt\n");
+    fprintf(stderr,"  ./aioRWTest -o output.txt -s1 -w -f /dev/nbd0 # log all relevent output to file\n");
     fprintf(stderr,"\nTable summary:\n");
     fprintf(stderr,"  ./aioRWTest -T -t 2 -f /dev/nbd0  # table of various parameters\n");
     exit(1);
@@ -498,6 +503,17 @@ int main(int argc, char *argv[]) {
       rrArray[0] = 1.0; rrArray[1] = 0; rrArray[2] = 0.5;
     }
 
+    FILE *f ; 
+
+    if (logOutput) {
+      f = fopen(logOutput, "w");
+      if (f == NULL)
+      {
+        printf("Error opening file!\n");
+        exit(1);
+      }
+    }
+
     size_t *qdArray = NULL;
     if (qdSpecified) {
       qdSpecified = 1;
@@ -534,13 +550,18 @@ int main(int argc, char *argv[]) {
 	      mkdir(logFNPrefix, 0755);
 	    }
 	    sprintf(filename, "%s/bs%zd_ss%zd_qd%zd_rr%.2f", logFNPrefix ? logFNPrefix : ".", bsArray[bsindex], ssArray[ssindex], qdArray[qdindex], rrArray[rrindex]);
+
 	    logSpeedType l;
 	    logSpeedInit(&l);
 
 	    diskStatStart(&dst); // reset the counts
 	    
 	    fprintf(stderr,"%6zd\t%6zd\t%6zd\t%6.2f\t", bsArray[bsindex], ssArray[ssindex], qdArray[qdindex], rrArray[rrindex]);
-	    
+        if(logOutput)
+        {
+          fprintf(f, "%6zd\t%6zd\t%6zd\t%6.2f\t", bsArray[bsindex], ssArray[ssindex], qdArray[qdindex], rrArray[rrindex]);
+        }
+
 	    if (ssArray[ssindex] == 0) {
 	      // setup random positions. An value of 0 means random. e.g. zero sequential files
 	      setupPositions(positions, &maxPositions, fdArray, fdLen, bdSize, 0, rrArray[rrindex], bsArray[bsindex], bsArray[bsindex], alignment, singlePosition, jumpStep, startAtZero, actualBlockDeviceSize, blocksFromEnd);
@@ -580,6 +601,12 @@ int main(int argc, char *argv[]) {
 	    logSpeedFree(&l);
 	    
 	    fprintf(stderr,"%6.0lf\t%6.0lf\t%6.0lf\t%6.0lf\n", ios/elapsed, TOMiB(ios*BLKSIZE/elapsed), efficiency, util);
+
+        if(logOutput)
+        {
+          fprintf(f, "%6.0lf\t%6.0lf\t%6.0lf\t%6.0lf\n", ios/elapsed, TOMiB(ios*BLKSIZE/elapsed), efficiency, util);
+        }
+
 	    row++;
 	    if (row > 1) {
 	      //	      rrindex=99999;ssindex=99999;qdindex=99999;bsindex=99999;
@@ -589,7 +616,9 @@ int main(int argc, char *argv[]) {
       }
     }
     free(ssArray); ssArray = NULL;
-
+    if (logOutput) {
+        fclose(f);
+    }
     // end table results
   } else {
     // just execute a single run
